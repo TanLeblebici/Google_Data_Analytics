@@ -1,0 +1,211 @@
+install.packages("tidyverse")
+library(tidyverse)
+library(ggplot2)
+
+# CONCATENATING ALL THE CSV FILES INTO CYCLIST_MERGED
+jan22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202201-divvy-tripdata.csv")
+feb22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202202-divvy-tripdata.csv")
+mar22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202203-divvy-tripdata.csv")
+apr22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202204-divvy-tripdata.csv")
+may22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202205-divvy-tripdata.csv")
+jun22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202206-divvy-tripdata.csv")
+jul22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202207-divvy-tripdata.csv")
+aug22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202208-divvy-tripdata.csv")
+sep22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202209-divvy-publictripdata.csv")
+oct22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202210-divvy-tripdata.csv")
+nov22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202211-divvy-tripdata.csv")
+dec22 <- read_csv(file = "~/Desktop/Development/R_Scripts/Cyclist_Data/202212-divvy-tripdata.csv")
+
+cyclist_merged <- bind_rows(jan22, feb22, mar22, apr22, may22, jun22, jul22, aug22, sep22, oct22, nov22, dec22)
+head(cyclist_merged)
+
+# REMOVING DUPLICATES (COULD NOT FIND ANY)
+cyclist_no_dup <- cyclist_merged[!duplicated(cyclist_merged$ride_id), ]
+print(paste("Removed", nrow(cyclist_merged) - nrow(cyclist_no_dup), "duplicated rows"))
+
+# PARSING DATETIME COLUMNS
+cyclist_no_dup$started_at <- as.POSIXct(cyclist_no_dup$started_at, "%Y-%m-%d %H:%M:%S")
+cyclist_no_dup$ended_at <- as.POSIXct(cyclist_no_dup$ended_at, "%Y-%m-%d %H:%M:%S")
+
+# MANIPULATING THE DATA (new colunm to improve calculation time)
+# ride_time_m represents the total time of a bike ride, in minutes 
+cyclist_no_dup <- cyclist_no_dup %>%
+  mutate(ride_time_m = as.numeric(cyclist_no_dup$ended_at - cyclist_no_dup$started_at) / 60)
+summary(cyclist_no_dup$ride_time_m)
+
+# year_month
+cyclist_no_dup <- cyclist_no_dup %>%
+  mutate(year_month = paste(strftime(cyclist_no_dup$started_at, "%Y"),
+                            "-",
+                            strftime(cyclist_no_dup$started_at, "%m"),
+                            paste("(",strftime(cyclist_no_dup$started_at, "%b"), ")", sep="")))
+unique(cyclist_no_dup$year_month)
+
+# weekday
+cyclist_no_dup <- cyclist_no_dup %>%
+  mutate(weekday = paste(strftime(cyclist_no_dup$ended_at, "%u"), "-", strftime(cyclist_no_dup$ended_at, "%a")))
+unique(cyclist_no_dup$weekday)
+
+# start_hour
+cyclist_no_dup <- cyclist_no_dup %>%
+  mutate(start_hour = strftime(cyclist_no_dup$ended_at, "%H"))
+unique(cyclist_no_dup$start_hour)
+
+# SAVING THE RESULT AS A CSV
+cyclist_no_dup %>%
+  write.csv("cyclist_clean.csv")
+
+#-------------------------------------------------------------------------------
+# Analyzing data to differ annual members from casul riders
+
+# Resizing the plot
+fig <- function(width, heigth) {options(repr.plot.width = width, repr.plot.heigth = heigth)}
+
+cyclist <- cyclist_no_dup
+head(cyclist)
+
+summary(cyclist)
+
+# DATA DISTRIBUTION
+
+# How much of the data is about memebers and how much is about casuals?
+cyclist %>%
+  group_by(member_casual) %>%
+  summarise(count = length(ride_id),
+            '%' = (length(ride_id) / nrow(cyclist)) * 100)
+
+# Members have a bigger proportion of the dataset, composing ~59%, ~19% bigger than the count of casual riders.
+fig(16, 8)
+ggplot(cyclist, aes(member_casual, fill = member_casual)) +
+  geom_bar() +
+  labs(x = "Casuals x Members", title = "Chart 01 - Casual x Members distribution")
+
+# How much of the data is distributed by month?
+cyclist %>%
+  group_by(year_month) %>%
+  summarise(count = length(ride_id),
+            '%' = (length(ride_id) / nrow(cyclist)) * 100,
+            'members_p' = (sum(member_casual == "member") / length(ride_id)) * 100,
+            'casual_p' = (sum(member_casual == "casual") / length(ride_id)) * 100,
+            'Member x Casual Perc Differ' = members_p - casual_p)
+
+cyclist %>%
+  ggplot(aes(year_month, fill = member_casual)) +
+  geom_bar() +
+  labs(x = 'Month', title = 'Chart 02 - Distribution by month') +
+  coord_flip()
+
+# Comparing Distrubution by month with climate data of Chicago.
+chicago_mean_temp <- c(-1.4, 0.7, 5.4, 11.3, 17.3, 22.6, 24.6, 23.2, 19.1, 12.8, 4.9, 0.2)
+month <- c("001 - Jan","002 - Feb","003 - Mar","004 - Apr","005 - May","006 - Jun","007 - Jul","008 - Aug","009 - Sep","010 - Oct","011 - Nov","012 - Dec")
+
+data.frame(month, chicago_mean_temp) %>%
+  ggplot(aes(x=month, y=chicago_mean_temp)) +
+  labs(x="Month", y="Mean temperature", title="Chart 02.5 - Mean temperature for Chicago (1991-2020)") +
+  geom_col() +
+  theme(axis.text.x = element_text(size = 6.5))
+
+# How much of the data distributed bu weekday?
+cyclist %>%
+  group_by(weekday) %>% 
+  summarise(count = length(ride_id),
+            '%' = (length(ride_id) / nrow(cyclist)) * 100,
+            'members_p' = (sum(member_casual == "member") / length(ride_id)) * 100,
+            'casual_p' = (sum(member_casual == "casual") / length(ride_id)) * 100,
+            'Member x Casual Perc Differ' = members_p - casual_p)
+
+# The biggest volume of data is on the weekend.
+# Saturday has the biggest data points.
+# Members may have the biggest volume of data, besides on saturday. On this weekday, casual take place as having most data points.
+ggplot(cyclist, aes(weekday, fill=member_casual)) +
+  geom_bar() +
+  labs(x="Weekdady", title="Chart 03 - Distribution by weekday") +
+  coord_flip()
+
+# Hours of the day
+cyclist %>%
+  group_by(start_hour) %>% 
+  summarise(count = length(ride_id),
+            '%' = (length(ride_id) / nrow(cyclist)) * 100,
+            'members_p' = (sum(member_casual == "member") / length(ride_id)) * 100,
+            'casual_p' = (sum(member_casual == "casual") / length(ride_id)) * 100,
+            'member_casual_perc_difer' = members_p - casual_p)
+
+cyclist %>%
+  ggplot(aes(start_hour, fill=member_casual)) +
+  labs(x="Hour of the day", title="Chart 04 - Distribution by hour of the day") +
+  geom_bar()
+
+cyclist %>%
+    ggplot(aes(start_hour, fill=member_casual)) +
+    geom_bar() +
+    labs(x="Hour of the day", title="Chart 05 - Distribution by hour of the day divided by weekday") +
+    facet_wrap(~ weekday)+
+    theme(axis.text.x = element_text(size = 4))
+
+cyclist %>%
+  mutate(type_of_weekday = ifelse(weekday == '6 - Sat' | weekday == '7 - Sun',
+                                  'weekend',
+                                  'midweek')) %>%
+  ggplot(aes(start_hour, fill=member_casual)) +
+  labs(x="Hour of the day", title="Chart 06 - Distribution by hour of the day in the midweek") +
+  geom_bar() +
+  facet_wrap(~ type_of_weekday) +
+  theme(axis.text.x = element_text(size = 4))
+
+#Rideable type
+cyclist %>%
+  group_by(rideable_type) %>% 
+  summarise(count = length(ride_id),
+            '%' = (length(ride_id) / nrow(cyclist)) * 100,
+            'members_p' = (sum(member_casual == "member") / length(ride_id)) * 100,
+            'casual_p' = (sum(member_casual == "casual") / length(ride_id)) * 100,
+            'member_casual_perc_difer' = members_p - casual_p)
+
+ggplot(cyclist, aes(rideable_type, fill=member_casual)) +
+  labs(x="Rideable type", title="Chart 07 - Distribution of types of bikes") +
+  geom_bar() +
+  coord_flip()
+
+summary(cyclist$ride_time_m)
+
+# The difference between 5% and 95% is 43.02 minutes. Because of that, 
+# in the analysis of this variable we are going to use a subset of the dataset without outliers. 
+# The subset will contain 95% of the dataset.
+ventiles = quantile(cyclist$ride_time_m, seq(0, 1, by=0.05))
+ventiles
+
+cyclist_without_outliers <- cyclist %>% 
+  filter(ride_time_m > as.numeric(ventiles['5%'])) %>%
+  filter(ride_time_m < as.numeric(ventiles['95%']))
+
+print(paste("Removed", nrow(cyclist) - nrow(cyclist_without_outliers), "rows as outliers" ))
+
+cyclist_without_outliers %>% 
+  group_by(member_casual) %>% 
+  summarise(mean = mean(ride_time_m),
+            'first_quarter' = as.numeric(quantile(ride_time_m, .25)),
+            'median' = median(ride_time_m),
+            'third_quarter' = as.numeric(quantile(ride_time_m, .75)),
+            'IR' = third_quarter - first_quarter)
+
+# Casual have more riding time than members.
+ggplot(cyclist_without_outliers, aes(x = ride_time_m, fill = member_casual)) +
+  labs(x = "Riding time", y = "Frequency", title = "Chart 08 - Histogram of Riding time for Casual x Member") +
+  geom_histogram(position = "identity", alpha = 0.7, bins = 30) +
+  facet_grid(. ~ member_casual, scales = "free_x", space = "free")
+
+# Riding time for days
+ggplot(cyclist_without_outliers, aes(x = weekday, fill = member_casual)) +
+  geom_bar(position = "stack", alpha = 0.7) +
+  facet_wrap(~ member_casual) +
+  labs(x = "Weekday", y = "Frequency", title = "Chart 09 - Histogram of Riding time for day of the week") +
+  coord_flip() +
+  theme(axis.text.x = element_text(size = 6))
+  
+ggplot(cyclist_without_outliers, aes(x = rideable_type, fill = member_casual)) +
+  geom_bar(position = "stack", alpha = 0.7) +
+  facet_wrap(~ member_casual) +
+  labs(x = "Rideable type", y = "Frequency", title = "Chart 10 - Histogram of Riding time for rideable type") +
+  coord_flip()
+
